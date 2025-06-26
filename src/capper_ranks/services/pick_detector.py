@@ -1,15 +1,14 @@
+# In src/capper_ranks/services/pick_detector.py
 import re
 from src.capper_ranks.core.mappings import TEAM_LEAGUE_MAP
 
 def detect_pick(tweet_text: str):
     """
-    Analyzes tweet text to find picks. This new version is less greedy.
-    Returns a list of leg dictionaries if a pick is found, otherwise None.
+    Analyzes tweet text to find picks. This new version is less greedy and more accurate.
     """
-    print(f"\n----- Analyzing: '{tweet_text}' -----")
+    print(f"----- Analyzing: '{tweet_text}' -----")
 
-    # Find the moneyline keyword, making sure it's a whole word
-    # We look for " ML" with word boundaries (\b) to avoid matching words like "HTML"
+    # We use a regex just to find the "ML" keyword with word boundaries
     ml_keyword_match = re.search(r"\bML\b", tweet_text, re.IGNORECASE)
 
     if not ml_keyword_match:
@@ -23,10 +22,8 @@ def detect_pick(tweet_text: str):
     # Now, check if this text chunk ends with one of our known team names or acronyms
     found_subject = None
     for team_alias in TEAM_LEAGUE_MAP.keys():
-        # The endswith() check is case-sensitive, so we use lower() on both
         if text_before_ml.lower().endswith(team_alias):
-            # We found a match! We store the alias we found.
-            # We check for the longest possible match to handle "New York" vs "New York Yankees"
+            # We check for the longest possible match to handle cases like "New York" vs "New York Yankees"
             if found_subject is None or len(team_alias) > len(found_subject):
                 found_subject = team_alias
 
@@ -34,11 +31,9 @@ def detect_pick(tweet_text: str):
         print(f"  DEBUG: Step 2 FAILED. No known team alias found at the end of '{text_before_ml}'.")
         return None
 
-    # We found a subject! Now get its league from the map.
     sport_league = TEAM_LEAGUE_MAP.get(found_subject)
     print(f"  DEBUG: Step 2 PASSED. Found subject '{found_subject}' which maps to league '{sport_league}'.")
 
-    # Step 3: Check if it's the right league (this logic remains the same)
     if sport_league != 'MLB':
         print(f"  DEBUG: Step 3 FAILED. League is '{sport_league}', not 'MLB'.")
         return None

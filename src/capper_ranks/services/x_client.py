@@ -41,6 +41,6 @@ if __name__ == '__main__':
     client = get_x_client()
     if client:
         response = client.get_me()
-        print(f"Connection test successful! Authenticated as bot: @{response.data.username}")
+        print(f"Connection test successful! Authenticated as bot: @{response.data.username}") # type: ignore
     else:
         print("Connection test failed. Check your API keys in the .env file.")

@@ -2,6 +2,7 @@
 
 import sqlite3
 from src.capper_ranks.core import config
+from datetime import datetime, timedelta
 
 def connect_db():
     """Establishes a connection to the database."""
@@ -23,10 +24,11 @@ def init_db():
             capper_id TEXT NOT NULL,
             original_tweet_id TEXT NOT NULL UNIQUE,
             our_retweet_id TEXT,
-            bet_format TEXT NOT NULL, 
+            bet_format TEXT NOT NULL,
             overall_odds INTEGER,
             status TEXT NOT NULL DEFAULT 'PENDING_RESULT',
-            timestamp_detected DATETIME DEFAULT CURRENT_TIMESTAMP
+            timestamp_detected DATETIME DEFAULT CURRENT_TIMESTAMP,
+            tweet_timestamp DATETIME NOT NULL -- This line must be present
         )
     ''')
 
@@ -103,25 +105,25 @@ def update_last_seen_tweet_id(capper_id, last_tweet_id):
     conn.commit()
     conn.close()
 
-# In src/capper_ranks/database/models.py
+# Replace your existing store_bet_and_legs function with this one.
+# It uses the NULL-safe 'IS' operator and checks the date of the original tweet.
 
-# In src/capper_ranks/database/models.py
-
-def store_bet_and_legs(capper_id, tweet_id, retweet_id, legs_data):
+def store_bet_and_legs(capper_id, tweet_id, retweet_id, tweet_timestamp, legs_data):
     """
     Stores a parent bet and its legs, but first checks for duplicates
-    from the same capper for the current day using NULL-safe comparisons.
+    from the same capper for the day the tweet was posted.
     """
     conn = connect_db()
     cursor = conn.cursor()
     
     try:
-        # --- UPDATED: DUPLICATION CHECK LOGIC ---
+        # We only run the duplicate check for single-leg bets for now.
         if len(legs_data) == 1:
             first_leg = legs_data[0]
             
-            # This query now uses the 'IS' operator instead of '=' for columns that can be NULL.
-            # This is the key to correctly identifying duplicates.
+            # Use the tweet's date for the duplicate check to handle past games correctly.
+            pick_date = datetime.fromisoformat(str(tweet_timestamp)).strftime('%Y-%m-%d')
+            
             cursor.execute('''
                 SELECT 1 FROM legs l
                 JOIN bets b ON l.bet_id = b.bet_id
@@ -130,26 +132,24 @@ def store_bet_and_legs(capper_id, tweet_id, retweet_id, legs_data):
                   AND l.bet_type IS ?
                   AND l.line IS ?
                   AND l.bet_qualifier IS ?
-                  AND DATE(b.timestamp_detected, 'localtime') = DATE('now', 'localtime')
+                  AND DATE(b.tweet_timestamp) = ?
                 LIMIT 1
-            ''', (capper_id, first_leg['subject'], first_leg['bet_type'], first_leg['line'], first_leg['bet_qualifier']))
+            ''', (capper_id, first_leg['subject'], first_leg['bet_type'], first_leg['line'], first_leg['bet_qualifier'], pick_date))
             
             existing_pick = cursor.fetchone()
             
             if existing_pick:
-                print(f"  --> Duplicate pick detected for {first_leg['subject']}. Skipping storage.")
+                print(f"  --> Duplicate pick detected for {first_leg['subject']} on {pick_date}. Skipping storage.")
                 conn.close()
                 return None
-        # --- END OF UPDATED CHECK ---
-
 
         # If we get here, it's not a duplicate, so we proceed with storing it.
         bet_format = 'Parlay' if len(legs_data) > 1 else 'Single'
 
         cursor.execute('''
-            INSERT INTO bets (capper_id, original_tweet_id, our_retweet_id, bet_format)
-            VALUES (?, ?, ?, ?)
-        ''', (capper_id, tweet_id, retweet_id, bet_format))
+            INSERT INTO bets (capper_id, original_tweet_id, our_retweet_id, bet_format, tweet_timestamp)
+            VALUES (?, ?, ?, ?, ?)
+        ''', (capper_id, tweet_id, retweet_id, bet_format, tweet_timestamp))
         
         bet_id = cursor.lastrowid
         
@@ -160,20 +160,39 @@ def store_bet_and_legs(capper_id, tweet_id, retweet_id, legs_data):
             ''', (bet_id, leg['sport_league'], leg['subject'], leg['bet_type'], leg['line'], leg['odds'], leg['bet_qualifier']))
         
         conn.commit()
-        print(f"Successfully stored Bet ID {bet_id} with {len(legs_data)} leg(s).")
+        print(f"    --> Successfully stored Bet ID {bet_id} with {len(legs_data)} leg(s).")
         return bet_id
 
     except sqlite3.IntegrityError:
-        print(f"Bet with original_tweet_id {tweet_id} already exists. Skipping.")
+        print(f"    --> Bet with original_tweet_id {tweet_id} already exists in DB. Skipping.")
         conn.rollback()
         return None
     except Exception as e:
-        print(f"An error occurred storing the bet: {e}")
+        print(f"    --> An error occurred storing the bet: {e}")
         conn.rollback()
         return None
     finally:
         conn.close()
 
+def get_pending_legs():
+    """Fetches all pending legs, now including the bet's original tweet timestamp."""
+    conn = connect_db()
+    # Add b.tweet_timestamp to the SELECT statement so we can use it for lookups
+    legs = conn.execute('''
+        SELECT l.*, b.tweet_timestamp FROM legs l
+        JOIN bets b ON l.bet_id = b.bet_id
+        WHERE l.status = 'PENDING_RESULT'
+    ''').fetchall()
+    conn.close()
+    return legs
+
+def update_leg_status(leg_id, status):
+    """Updates the status of a specific leg (e.g., to WIN or LOSS)."""
+    conn = connect_db()
+    conn.execute("UPDATE legs SET status = ? WHERE leg_id = ?", (status, leg_id))
+    conn.commit()
+    conn.close()
+    print(f"Updated leg {leg_id} to status {status}")
 
 
 if __name__ == '__main__':
