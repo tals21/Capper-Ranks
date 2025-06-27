@@ -1,12 +1,12 @@
 # src/capper_ranks/bot.py
 
 import time
-from datetime import datetime
-from src.capper_ranks.core import config
-from src.capper_ranks.database import models
-from src.capper_ranks.services import x_client
-from src.capper_ranks.services import pick_detector
-from src.capper_ranks.services import sports_api
+from datetime import datetime # This import is fine as it's a standard library module
+from capper_ranks.core import config
+from capper_ranks.database import models
+from capper_ranks.services import x_client
+from capper_ranks.services import pick_detector
+from capper_ranks.services import sports_api
 
 def process_pending_results():
     """Gets all pending picks and tries to update their status."""

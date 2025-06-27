@@ -1,7 +1,7 @@
 # src/capper_ranks/database/models.py
 
 import sqlite3
-from src.capper_ranks.core import config
+from capper_ranks.core import config
 from datetime import datetime, timedelta
 
 def connect_db():

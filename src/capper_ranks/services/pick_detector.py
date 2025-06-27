@@ -1,6 +1,6 @@
 # In src/capper_ranks/services/pick_detector.py
 import re
-from src.capper_ranks.core.mappings import TEAM_LEAGUE_MAP
+from capper_ranks.core.mappings import TEAM_LEAGUE_MAP
 
 def detect_pick(tweet_text: str):
     """

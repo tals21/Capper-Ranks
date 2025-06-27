@@ -1,5 +1,5 @@
 import tweepy
-from src.capper_ranks.core import config
+from capper_ranks.core import config
 
 def get_x_client():
     """Authenticates with the X API using credentials from config."""
