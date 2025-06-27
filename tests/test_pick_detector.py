@@ -1,5 +1,7 @@
-# Import the function we want to test
-from src.capper_ranks.services.pick_detector import detect_pick
+# tests/test_pick_detector.py
+
+# The import now starts directly from your package name, not from 'src'
+from capper_ranks.services.pick_detector import detect_pick
 
 # IMPORTANT: Every test function MUST start with the prefix "test_"
 def test_detect_simple_moneyline_pick():
