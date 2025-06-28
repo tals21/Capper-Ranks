@@ -1,0 +1,4 @@
+python-dotenv
+MLB-StatsAPI
+tweepy
+pytest
