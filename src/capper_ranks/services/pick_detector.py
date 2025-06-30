@@ -7,34 +7,52 @@ from capper_ranks.services import sports_api
 
 # In src/capper_ranks/services/pick_detector.py
 
-def _detect_player_prop(line: str) -> Optional[dict]:
+# In src/capper_ranks/services/pick_detector.py
+
+def _detect_player_prop(line: str) -> Optional[Dict]:
     """
-    Looks for player props, now with added support for single-letter
-    shorthand like 'U' (Under) and 'O' (Over).
+    Final robust version. It finds the bet first, then works backward to
+    identify the most likely player name using a precise regex.
     """
-    # UPDATED REGEX: Now includes 'o' and 'u' as valid qualifiers.
-    # The pattern for the name is also made more robust.
-    prop_match = re.search(
-        r"\b([A-Z][a-z'-]+(?:\s[A-Z][a-z'.-]+){1,3})\s*(?:\([^)]*\))?\s+(over|under|o/u|o|u)\s*(\d+\.?\d*)\s+([A-Za-z\s'’]+)",
+    # Step 1: Find the bet pattern itself (e.g., "Over 1.5 Total Bases"). This is our anchor.
+    bet_match = re.search(
+        r"(over|under|o/u|o|u)\s*(\d+\.?\d*)\s+([A-Za-z\s'’]+)",
         line,
         re.IGNORECASE
     )
 
-    if not prop_match:
+    if not bet_match:
         return None
 
-    # The groups are now correct again based on this single regex
-    player_name, qualifier_text, line_str, prop_type = prop_match.groups()
-    player_name = player_name.strip()
+    # Step 2: Get the text that appeared directly BEFORE our bet pattern.
+    text_before_bet = line[:bet_match.start()].strip()
     
-    # Validation Step
+    if not text_before_bet:
+        return None
+
+    # --- THIS IS THE KEY FIX ---
+    # Step 3: From that preceding text, extract the capitalized name at the very end.
+    # This regex looks for a pattern of 1-4 capitalized words at the end of the string ($).
+    # This correctly isolates the name from surrounding verbs like "Fading" or "betting on".
+    player_name_match = re.search(r"([A-Z][a-z'.-]+(?:\s[A-Z][a-z'.-]+){0,3})$", text_before_bet)
+    
+    if not player_name_match:
+        print(f"  DEBUG: Found a prop bet, but couldn't isolate a player name from '{text_before_bet}'.")
+        return None
+    
+    # Now we have a clean player name!
+    player_name = player_name_match.group(1).strip()
+    
+    # --- The rest of the function proceeds as before ---
     print(f"  DEBUG: Found potential player prop for '{player_name}'. Validating...")
     league = sports_api.get_player_league(player_name)
+    
     if not league:
         print(f"  DEBUG: Could not validate '{player_name}' as a player. Ignoring.")
         return None
     
     print(f"  DEBUG: Validated '{player_name}' in league '{league}'.")
+    qualifier_text, line_str, prop_type = bet_match.groups()
     qualifier = "Over" if qualifier_text.lower().startswith('o') else "Under"
     
     return {
