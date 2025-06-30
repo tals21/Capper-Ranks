@@ -1,117 +1,121 @@
 import re
-from typing import Tuple, Optional
-from ..core.mappings import TEAM_LEAGUE_MAP
+from typing import Dict, List, Tuple, Optional
+from capper_ranks.core.mappings import TEAM_LEAGUE_MAP
+from capper_ranks.services import sports_api
 
-def _find_team_and_league_from_subject(subject_text: str) -> Tuple[Optional[str], Optional[str]]:
-    """Given a potential subject text, finds the longest matching alias and its league."""
-    subject_lower = subject_text.lower()
-    # Find all possible aliases that match the end of the subject string
-    possible_matches = [alias for alias in TEAM_LEAGUE_MAP.keys() if subject_lower.endswith(alias)]
-    if not possible_matches:
-        return None, None
-    
-    # Return the longest matching alias to handle "New York Yankees" over "Yankees"
-    best_match = max(possible_matches, key=len)
-    return best_match, TEAM_LEAGUE_MAP[best_match]
+# --- Sport-Specific Detection Logic ---
 
-def _detect_mlb_pick(tweet_text: str):
-    """Contains all pick detection logic specifically for MLB."""
-    
-    # --- Detection Priority 1: Run Lines (Spreads) ---
-    # Looks for a team name followed by a spread like -1.5 or +1.5
-    # The team name part is non-greedy (.*?) to capture the shortest possible text.
-    run_line_match = re.search(r"\b(.*?)\s*([+-]\d{1,2}(?:\.5)?)\b", tweet_text, re.IGNORECASE)
-    if run_line_match:
-        subject, line_str = run_line_match.groups()
-        team_alias, league = _find_team_and_league_from_subject(subject)
-        if league == 'MLB':
-            print(f"  DEBUG: Found Run Line pick: {team_alias} {line_str}")
-            return {'sport_league': 'MLB', 'subject': team_alias, 'bet_type': 'Spread', 'line': float(line_str), 'odds': None, 'bet_qualifier': 'Full Game'}
+# In src/capper_ranks/services/pick_detector.py
 
-    # --- Detection Priority 2: Moneyline (ML) ---
-    ml_match = re.search(r"\b(.*?)\s+ML\b", tweet_text, re.IGNORECASE)
-    if ml_match:
-        subject = ml_match.group(1).strip()
-        team_alias, league = _find_team_and_league_from_subject(subject)
-        if league == 'MLB':
-            print(f"  DEBUG: Found Moneyline pick: {team_alias}")
-            return {'sport_league': 'MLB', 'subject': team_alias, 'bet_type': 'Moneyline', 'line': None, 'odds': None, 'bet_qualifier': 'Full Game'}
-
-    # --- Detection Priority 3: Totals (Over/Under) ---
-    total_match = re.search(r"(over|under|o/u)\s*(\d+\.?\d*)", tweet_text, re.IGNORECASE)
-    if total_match:
-        qualifier = "Over" if total_match.group(1).lower().startswith('o') else "Under"
-        line = float(total_match.group(2))
-        # For a total, we need to find which game it refers to. Find the first MLB team mentioned.
-        team_context, league = _find_sport_context(tweet_text) # Re-using your original helper for context
-        if league == 'MLB':
-            print(f"  DEBUG: Found Total pick: {qualifier} {line} for a game involving '{team_context}'")
-            # For F5 bets, we can add a check here for "F5" or "First 5" in the tweet text
-            bet_qualifier = "First 5" if "f5" in tweet_text.lower() or "first 5" in tweet_text.lower() else "Full Game"
-            return {'sport_league': 'MLB', 'subject': team_context, 'bet_type': 'Total', 'line': line, 'odds': None, 'bet_qualifier': f"{qualifier} {bet_qualifier}"}
-
-    return None
-
-def _detect_nfl_pick(tweet_text: str):
-    """[PLACEHOLDER] This is where you will add detection logic for NFL picks."""
-    pass
-    return None
-
-def _detect_nba_pick(tweet_text: str):
-    """[PLACEHOLDER] This is where you will add detection logic for NBA picks."""
-    pass
-    return None
-
-# --- Main Dispatcher Function (Updated) ---
-
-def detect_pick(tweet_text: str):
+def _detect_player_prop(line: str) -> Optional[dict]:
     """
-    Main dispatcher function. It determines the sport context and routes to the
-    appropriate specialized detection function.
+    Looks for player props, now with added support for single-letter
+    shorthand like 'U' (Under) and 'O' (Over).
     """
-    print(f"----- Analyzing: '{tweet_text}' -----")
-    
-    # For now, we will just run the MLB detector. In the future, this dispatcher can be made smarter.
-    # It could look for keywords for each sport first.
-    
-    detected_leg = _detect_mlb_pick(tweet_text)
-    
-    if detected_leg:
-        # We return the pick as a list to support parlays later
-        return [detected_leg]
-    
-    # Logic for other sports would be called here
-    # detected_leg = _detect_nfl_pick(tweet_text)
-    # if detected_leg:
-    #     return [detected_leg]
+    # UPDATED REGEX: Now includes 'o' and 'u' as valid qualifiers.
+    # The pattern for the name is also made more robust.
+    prop_match = re.search(
+        r"\b([A-Z][a-z'-]+(?:\s[A-Z][a-z'.-]+){1,3})\s*(?:\([^)]*\))?\s+(over|under|o/u|o|u)\s*(\d+\.?\d*)\s+([A-Za-z\s'’]+)",
+        line,
+        re.IGNORECASE
+    )
 
-    print("  DEBUG: No recognizable pick format found.")
-    return None
+    if not prop_match:
+        return None
 
-# --- Original Helper Function (still used by Totals logic) ---
+    # The groups are now correct again based on this single regex
+    player_name, qualifier_text, line_str, prop_type = prop_match.groups()
+    player_name = player_name.strip()
+    
+    # Validation Step
+    print(f"  DEBUG: Found potential player prop for '{player_name}'. Validating...")
+    league = sports_api.get_player_league(player_name)
+    if not league:
+        print(f"  DEBUG: Could not validate '{player_name}' as a player. Ignoring.")
+        return None
+    
+    print(f"  DEBUG: Validated '{player_name}' in league '{league}'.")
+    qualifier = "Over" if qualifier_text.lower().startswith('o') else "Under"
+    
+    return {
+        'sport_league': league,
+        'subject': player_name,
+        'bet_type': 'Player Prop',
+        'line': float(line_str),
+        'odds': None,
+        'bet_qualifier': f"{qualifier} {prop_type.strip()}"
+    }
+
+# This function is being updated to be simpler, as it only needs to check one line at a time
+def _detect_team_bet(line: str) -> Optional[dict]:
+    """Detects a team-based bet (ML, Spread, Total) on a single line of text."""
+    team_context, sport_league = _find_sport_context(line)
+    if not sport_league:
+        return None
+
+    # This function now gets the simple team context for this specific line
+    return _detect_mlb_pick(line, team_context) # type: ignore # We can reuse our MLB-specific logic
+
 
 def _find_sport_context(tweet_text: str) -> Tuple[Optional[str], Optional[str]]:
-    """
-    Scans the tweet for ALL known team aliases, and returns the one that
-    appears EARLIEST in the string to correctly determine the context.
-    """
     found_matches = []
-    
-    # First, find every possible team match and its starting position in the tweet
     for team_alias in TEAM_LEAGUE_MAP.keys():
-        # finditer finds all non-overlapping matches
         for match in re.finditer(r'\b' + re.escape(team_alias) + r'\b', tweet_text, re.IGNORECASE):
-            # Store the match's start index, the alias found, and its league
-            found_matches.append((match.start(), team_alias, TEAM_LEAGUE_MAP[team_alias]))
-
+            found_matches.append({'alias': team_alias, 'start': match.start(), 'league': TEAM_LEAGUE_MAP[team_alias]})
     if not found_matches:
-        return None, None # No teams were found at all
+        return None, None
+    earliest_match = min(found_matches, key=lambda x: x['start'])
+    return earliest_match['alias'], earliest_match['league']
 
-    # Sort the list of matches by their starting position (the first item in our tuple)
-    found_matches.sort(key=lambda x: x[0])
+def _detect_mlb_pick(tweet_text: str, team_context: str):
+    text_lower = tweet_text.lower()
+    is_f5 = "f5" in text_lower or "first 5" in text_lower
+    bet_qualifier_suffix = "First 5" if is_f5 else "Full Game"
+    run_line_match = re.search(r'\b' + re.escape(team_context) + r'\s*([+-]\d\.\d)\b', text_lower, re.IGNORECASE)
+    if run_line_match:
+        return {'sport_league': 'MLB', 'subject': team_context, 'bet_type': 'Spread', 'line': float(run_line_match.group(1)), 'odds': None, 'bet_qualifier': bet_qualifier_suffix}
+    ml_match = re.search(r'\b' + re.escape(team_context) + r'\s+ML\b', text_lower, re.IGNORECASE)
+    if ml_match:
+        return {'sport_league': 'MLB', 'subject': team_context, 'bet_type': 'Moneyline', 'line': None, 'odds': None, 'bet_qualifier': bet_qualifier_suffix}
+    total_match = re.search(r"(over|under|o/u)\s*(\d+\.?\d*)", text_lower)
+    if total_match:
+        qualifier = "Over" if total_match.group(1).startswith('o') else "Under"
+        return {'sport_league': 'MLB', 'subject': team_context, 'bet_type': 'Total', 'line': float(total_match.group(2)), 'odds': None, 'bet_qualifier': f"{qualifier} {bet_qualifier_suffix}"}
+    return None
+
+def _detect_nfl_pick(tweet_text: str, team_context: str): pass
+def _detect_nba_pick(tweet_text: str, team_context: str): pass
+
+def detect_pick(tweet_text: str) -> Optional[List[dict]]:
+    """
+    Main dispatcher. Now splits tweets by lines to find all possible picks,
+    including multiple picks in one tweet (parlays).
+    """
+    print(f"----- Analyzing Tweet -----")
     
-    # The first item in the sorted list is the one that appeared earliest in the tweet
-    earliest_match = found_matches[0]
+    all_legs = []
+    # Split the tweet into individual lines to check each one
+    lines = tweet_text.split('\n')
     
-    # Return the alias (item 1) and league (item 2) of the earliest match
-    return earliest_match[1], earliest_match[2]
+    for line in lines:
+        if not line.strip():  # Skip empty lines
+            continue
+
+        print(f"  -- Analyzing Line: '{line}'")
+        
+        # Priority 1: Player Props
+        detected_leg = _detect_player_prop(line)
+        
+        # Priority 2: Team Bets (if no player prop was found on this line)
+        if not detected_leg:
+            detected_leg = _detect_team_bet(line)
+        
+        if detected_leg:
+            print(f"    ✅ LEG DETECTED: {detected_leg}")
+            all_legs.append(detected_leg)
+
+    if not all_legs:
+        print("  DEBUG: No valid picks found in any line of the tweet.")
+        return None
+
+    return all_legs

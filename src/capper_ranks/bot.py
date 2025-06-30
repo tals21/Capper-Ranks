@@ -1,5 +1,3 @@
-# src/capper_ranks/bot.py
-
 import time
 from datetime import datetime 
 from capper_ranks.core import config

@@ -194,6 +194,39 @@ def update_leg_status(leg_id, status):
     conn.close()
     print(f"Updated leg {leg_id} to status {status}")
 
+def get_all_cappers():
+    """Retrieves all cappers from the database."""
+    conn = connect_db()
+    cappers = conn.execute("SELECT * FROM cappers ORDER BY username").fetchall()
+    conn.close()
+    return cappers
+
+def remove_capper_by_username(username: str) -> bool:
+    """Removes a capper and their 'last_seen' record by username."""
+    conn = connect_db()
+    cursor = conn.cursor()
+    try:
+        # First, get the ID for the username
+        capper = get_capper_by_username(username)
+        if not capper:
+            return False
+
+        capper_id = capper['capper_id']
+        
+        # Delete from all related tables
+        cursor.execute("DELETE FROM last_seen_tweets WHERE capper_id = ?", (capper_id,))
+        cursor.execute("DELETE FROM cappers WHERE capper_id = ?", (capper_id,))
+        # Note: We are NOT deleting their old bets, so their history is preserved.
+        
+        conn.commit()
+        # rowcount will be > 0 if a row was deleted
+        return cursor.rowcount > 0
+    except Exception as e:
+        print(f"Error removing capper @{username}: {e}")
+        conn.rollback()
+        return False
+    finally:
+        conn.close()
 
 if __name__ == '__main__':
     init_db()

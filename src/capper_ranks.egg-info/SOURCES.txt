@@ -2,6 +2,7 @@ README.md
 pyproject.toml
 src/capper_ranks/__init__.py
 src/capper_ranks/bot.py
+src/capper_ranks/test_api.py
 src/capper_ranks.egg-info/PKG-INFO
 src/capper_ranks.egg-info/SOURCES.txt
 src/capper_ranks.egg-info/dependency_links.txt

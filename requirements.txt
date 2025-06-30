@@ -2,3 +2,4 @@ python-dotenv
 MLB-StatsAPI
 tweepy
 pytest
+pytest-mock

@@ -73,3 +73,46 @@ def test_ignore_non_mlb_pick():
 def test_ignore_non_pick_tweet():
     """Tests that a tweet without a valid pick format is ignored."""
     assert detect_pick("What a great game by the Blue Jays!") is None
+
+def test_detect_valid_mlb_player_prop(mocker):
+    """Tests that a valid player prop is detected."""
+    # THE FIX: The path no longer includes 'src.'
+    mocker.patch('capper_ranks.services.sports_api.get_player_league', return_value='MLB')
+    
+    sample_tweet = "I am betting on Shohei Ohtani Over 1.5 Total Bases"
+    result = detect_pick(sample_tweet)
+    
+    assert result is not None
+    assert result[0]['subject'] == 'Shohei Ohtani'
+
+def test_ignore_player_prop_for_unsupported_league(mocker):
+    """Tests that a non-MLB player prop is ignored for now."""
+    # THE FIX: The path no longer includes 'src.'
+    mocker.patch('capper_ranks.services.sports_api.get_player_league', return_value='NBA')
+    
+    sample_tweet = "Taking LeBron James Over 29.5 Points"
+    result = detect_pick(sample_tweet)
+    
+    assert result is None
+
+def test_ignore_prop_for_nonexistent_player(mocker):
+    """Tests that a prop is ignored if the player is not found by the API."""
+    # THE FIX: The path no longer includes 'src.'
+    mocker.patch('capper_ranks.services.sports_api.get_player_league', return_value=None)
+    
+    sample_tweet = "Let's see if John Doe Over 0.5 Hits"
+    result = detect_pick(sample_tweet)
+    
+    assert result is None
+
+def test_detect_player_prop_with_suffix(mocker):
+    """Tests that a player name with 'Jr.' is correctly parsed."""
+    mocker.patch('capper_ranks.services.sports_api.get_player_league', return_value='MLB')
+
+    sample_tweet = "Fading Vladimir Guerrero Jr. Under 0.5 Hits today"
+    result = detect_pick(sample_tweet)
+
+    assert result is not None
+    assert result[0]['subject'] == 'Vladimir Guerrero Jr.'
+    assert result[0]['bet_type'] == 'Player Prop'
+    assert result[0]['bet_qualifier'] == 'Under Hits'
