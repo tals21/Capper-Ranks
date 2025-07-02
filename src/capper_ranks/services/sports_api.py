@@ -64,7 +64,27 @@ def _get_mlb_player_prop_result(leg_details: dict) -> Dict:
         player_stats = boxscore.get('playerInfo', {}).get(player_id_str, {}).get('stats', {})
         if not player_stats: return {'status': 'ERROR', 'details': f"Could not find stats for '{player_name}' in boxscore."}
         
-        prop_stat_map = {'total bases': 'totalbases', 'hits': 'hits', 'strikeouts': 'strikeouts', 'hits allowed': 'hitsallowed'}
+        # Expanded mapping for all supported MLB stat types
+        prop_stat_map = {
+            'total bases': 'totalbases',
+            'hits': 'hits',
+            'home runs': 'homeruns',
+            'rbis': 'rbi',
+            'runs': 'runs',
+            'strikeouts': 'strikeouts',
+            'walks': 'baseonballs',
+            'stolen bases': 'stolenbases',
+            'hits allowed': 'hitsallowed',
+            'earned runs': 'earnedruns',
+            'outs recorded': 'outs',
+            'runs allowed': 'runsallowed',
+            'saves': 'saves',
+            'wins': 'wins',
+            'losses': 'losses',
+            'innings pitched': 'inningsPitched',
+            'doubles': 'doubles',
+            'triples': 'triples',
+        }
         qualifier, prop_type_text = leg_details['bet_qualifier'].split(' ', 1)
         stat_key = prop_stat_map.get(prop_type_text.lower())
         
