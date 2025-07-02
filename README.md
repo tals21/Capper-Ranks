@@ -154,10 +154,6 @@ Contributions are welcome! Please:
 3. Add tests for new functionality
 4. Submit a pull request
 
-## 📄 License
-
-[Add your license information here]
-
 ## 📞 Contact
 
-[Add your contact information here]
+aakshintala@gmail.com
