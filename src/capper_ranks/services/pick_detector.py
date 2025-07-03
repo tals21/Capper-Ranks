@@ -51,8 +51,9 @@ def _detect_player_prop(line: str) -> Optional[Dict]:
     Handles formats like "Player Name (Team) O/U <number> <stat_type>"
     """
     # Updated regex to handle "Player Name (Team) O/U <number> <stat_type>" format
+    # Also handles special cases like "H+R+RBI"
     bet_match = re.search(
-        r"(over|under|o/u|o|u)\s*(\d+\.?\d*)\s+([A-Za-z\s'']+?)(?:\s|$)",
+        r"(over|under|o/u|o|u)\s*(\d+\.?\d*)\s+([A-Za-z\s''+/]+?)(?:\s*$)",
         line,
         re.IGNORECASE
     )
@@ -76,15 +77,25 @@ def _detect_player_prop(line: str) -> Optional[Dict]:
         if league:
             qualifier_text, line_str, stat_type_candidate = bet_match.groups()
             qualifier = "Over" if qualifier_text.lower().startswith('o') else "Under"
-            # Greedily match the longest valid stat type
-            stat_type = None
-            for stype in MLB_STAT_TYPES:
-                if stat_type_candidate.lower().startswith(stype.lower()):
-                    stat_type = stype
-                    break
-            if not stat_type:
-                # fallback: use first word after number
-                stat_type = stat_type_candidate.split()[0]
+            
+            # Clean up the stat type candidate
+            stat_type_candidate = stat_type_candidate.strip()
+            
+            # Special handling for H+R+RBI
+            if stat_type_candidate.upper() == "H+R+RBI":
+                stat_type = "H+R+RBI"
+            else:
+                # Greedily match the longest valid stat type
+                stat_type = None
+                for stype in MLB_STAT_TYPES:
+                    if stype == "H+R+RBI":  # Skip this in the loop since we handled it above
+                        continue
+                    if stat_type_candidate.lower().startswith(stype.lower()):
+                        stat_type = stype
+                        break
+                if not stat_type:
+                    # fallback: use first word after number
+                    stat_type = stat_type_candidate.split()[0]
             return {
                 'sport_league': league,
                 'subject': name_candidate_clean,
@@ -116,6 +127,7 @@ def _detect_team_bet(line: str) -> Optional[Dict]:
         return {'sport_league': 'MLB', 'subject': team_context, 'bet_type': 'Moneyline', 'line': None, 'odds': None, 'bet_qualifier': bet_qualifier_suffix}
         
     # Check for a general total if the team is just mentioned for context
+    # This should take priority over player prop detection for team totals
     total_match = re.search(r"(over|under|o/u)\s*(\d+\.?\d*)", text_lower)
     if total_match:
         qualifier = "Over" if total_match.group(1).startswith('o') else "Under"
@@ -139,7 +151,12 @@ def detect_pick(tweet_text: str) -> Optional[Dict]:
 
         print(f"  -- Analyzing Line: '{line}'")
         
-        detected_leg = _detect_player_prop(line) or _detect_team_bet(line)
+        # Prioritize team bets when a team is mentioned in the context
+        team_context, _ = _find_sport_context(line)
+        if team_context:
+            detected_leg = _detect_team_bet(line) or _detect_player_prop(line)
+        else:
+            detected_leg = _detect_player_prop(line) or _detect_team_bet(line)
         
         if detected_leg:
             # Only add picks from supported leagues to our final list

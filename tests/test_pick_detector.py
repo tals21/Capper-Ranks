@@ -206,15 +206,23 @@ def test_h_r_rbi_calculation(mocker):
     
     # Mock the statsapi calls
     mocker.patch('capper_ranks.services.sports_api.statsapi.lookup_player', return_value=[{'id': 123, 'currentTeam': {'id': 456}}])
-    mocker.patch('capper_ranks.services.sports_api.statsapi.schedule', return_value=[{'game_pk': 789, 'status': 'Final'}])
-    mocker.patch('capper_ranks.services.sports_api.statsapi.boxscore_data', return_value={
-        'playerInfo': {
-            'ID123': {
-                'stats': {
-                    'batting': {
-                        'hits': 2,
-                        'runs': 1,
-                        'rbi': 3
+    mocker.patch('capper_ranks.services.sports_api.statsapi.schedule', return_value=[{'game_id': 789, 'status': 'Final'}])
+    mocker.patch('capper_ranks.services.sports_api.statsapi.get', return_value={
+        'liveData': {
+            'boxscore': {
+                'teams': {
+                    'away': {
+                        'players': {
+                            'ID123': {
+                                'stats': {
+                                    'batting': {
+                                        'hits': 2,
+                                        'runs': 1,
+                                        'rbi': 3
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
             }
