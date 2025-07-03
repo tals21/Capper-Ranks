@@ -26,7 +26,18 @@ def get_player_league(player_name: str) -> Optional[str]:
         
         # We assume the first result is the correct one.
         player_info = player_info_list[0]
-        league = player_info.get('primarySport', {}).get('abbreviation')
+        
+        # Check if primarySport field exists and has a valid league
+        primary_sport = player_info.get('primarySport', {})
+        if primary_sport and primary_sport.get('abbreviation') in ['MLB', 'NBA', 'NFL']:
+            league = primary_sport.get('abbreviation')
+        # Fallback: If primarySport is not available, check if it's an MLB player
+        # (has mlbDebutDate and currentTeam, which are MLB-specific fields)
+        elif player_info.get('mlbDebutDate') and player_info.get('currentTeam'):
+            league = 'MLB'
+        else:
+            print(f"  DEBUG: Could not determine league for player '{player_name}'")
+            return None
         
         # Only return a league if it's one we support.
         if league in ['MLB', 'NBA', 'NFL']:
@@ -60,24 +71,49 @@ def _get_mlb_player_prop_result(leg_details: dict) -> Dict:
         game = games[0]
         if game.get('status') != "Final": return {'status': 'PENDING_RESULT'}
 
-        boxscore = statsapi.boxscore_data(game.get('game_pk'))
-        player_stats = boxscore.get('playerInfo', {}).get(player_id_str, {}).get('stats', {})
-        if not player_stats: return {'status': 'ERROR', 'details': f"Could not find stats for '{player_name}' in boxscore."}
+        # Use game_id instead of game_pk (same fix as in team bet function)
+        game_id = game.get('game_id')
+        if not game_id:
+            return {'status': 'ERROR', 'details': 'Could not find game_id in schedule data.'}
+
+        # Get the game feed which contains liveData with player stats
+        game_feed = statsapi.get('game', {'gamePk': game_id})
+        live_data = game_feed.get('liveData', {})
+        boxscore = live_data.get('boxscore', {})
+        
+        # Find the player in the teams section
+        teams = boxscore.get('teams', {})
+        player_stats = None
+        
+        # Check both away and home teams for the player
+        for team_type in ['away', 'home']:
+            team_players = teams.get(team_type, {}).get('players', {})
+            if player_id_str in team_players:
+                player_stats = team_players[player_id_str].get('stats', {})
+                break
+        
+        if not player_stats: 
+            # Check if player is in boxscore but has no stats (didn't play)
+            if player_id_str in boxscore.get('playerInfo', {}):
+                return {'status': 'ERROR', 'details': f"Player '{player_name}' was on roster but did not play in the game."}
+            else:
+                return {'status': 'ERROR', 'details': f"Could not find stats for '{player_name}' in boxscore."}
         
         # Expanded mapping for all supported MLB stat types
         prop_stat_map = {
+            'h+r+rbi': 'hits_runs_rbi',  # Special case - calculated from multiple stats
             'total bases': 'totalbases',
             'hits': 'hits',
             'home runs': 'homeruns',
             'rbis': 'rbi',
             'runs': 'runs',
-            'strikeouts': 'strikeouts',
-            'walks': 'baseonballs',
-            'stolen bases': 'stolenbases',
-            'hits allowed': 'hitsallowed',
-            'earned runs': 'earnedruns',
+            'strikeouts': 'strikeOuts',  # Fixed: API uses 'strikeOuts' with capital 'O'
+            'walks': 'baseOnBalls',  # Fixed: API uses 'baseOnBalls' with capital 'O'
+            'stolen bases': 'stolenBases',  # Fixed: API uses 'stolenBases' with capital 'B'
+            'hits allowed': 'hits',  # For pitchers, this is just 'hits'
+            'earned runs': 'earnedRuns',  # Fixed: API uses 'earnedRuns' with capital 'R'
             'outs recorded': 'outs',
-            'runs allowed': 'runsallowed',
+            'runs allowed': 'runs',  # For pitchers, this is just 'runs'
             'saves': 'saves',
             'wins': 'wins',
             'losses': 'losses',
@@ -89,8 +125,17 @@ def _get_mlb_player_prop_result(leg_details: dict) -> Dict:
         stat_key = prop_stat_map.get(prop_type_text.lower())
         
         if not stat_key: return {'status': 'NEEDS_GRADING_LOGIC', 'details': f"No logic for prop '{prop_type_text}'"}
-            
-        actual_stat = player_stats.get('batting', {}).get(stat_key) or player_stats.get('pitching', {}).get(stat_key, 0)
+        
+        # Special handling for H+R+RBI
+        if stat_key == 'hits_runs_rbi':
+            batting_stats = player_stats.get('batting', {})
+            hits = batting_stats.get('hits', 0)
+            runs = batting_stats.get('runs', 0)
+            rbi = batting_stats.get('rbi', 0)
+            actual_stat = hits + runs + rbi
+        else:
+            actual_stat = player_stats.get('batting', {}).get(stat_key) or player_stats.get('pitching', {}).get(stat_key, 0)
+        
         pick_line = leg_details['line']
 
         if actual_stat == pick_line: return {'status': 'PUSH'}

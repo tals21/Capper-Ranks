@@ -1,7 +1,7 @@
 # src/capper_ranks/database/models.py
 
 import sqlite3
-from capper_ranks.core import config
+from ..core import config
 from datetime import datetime, timedelta
 
 def connect_db():
@@ -108,13 +108,19 @@ def update_last_seen_tweet_id(capper_id, last_tweet_id):
 # Replace your existing store_bet_and_legs function with this one.
 # It uses the NULL-safe 'IS' operator and checks the date of the original tweet.
 
-def store_bet_and_legs(capper_id, tweet_id, retweet_id, tweet_timestamp, legs_data):
+def store_bet_and_legs(capper_id, tweet_id, retweet_id, tweet_timestamp, detection_result):
     """
     Stores a parent bet and its legs, but first checks for duplicates
     from the same capper for the day the tweet was posted.
+    
+    Args:
+        detection_result: Dictionary with 'legs' and 'is_parlay' keys from detect_pick
     """
     conn = connect_db()
     cursor = conn.cursor()
+    
+    legs_data = detection_result['legs']
+    is_parlay = detection_result['is_parlay']
     
     try:
         # We only run the duplicate check for single-leg bets for now.
@@ -143,8 +149,11 @@ def store_bet_and_legs(capper_id, tweet_id, retweet_id, tweet_timestamp, legs_da
                 conn.close()
                 return None
 
-        # If we get here, it's not a duplicate, so we proceed with storing it.
-        bet_format = 'Parlay' if len(legs_data) > 1 else 'Single'
+        # Determine bet format based on is_parlay flag and number of legs
+        if is_parlay and len(legs_data) > 1:
+            bet_format = 'Parlay'
+        else:
+            bet_format = 'Single'
 
         cursor.execute('''
             INSERT INTO bets (capper_id, original_tweet_id, our_retweet_id, bet_format, tweet_timestamp)
@@ -160,7 +169,7 @@ def store_bet_and_legs(capper_id, tweet_id, retweet_id, tweet_timestamp, legs_da
             ''', (bet_id, leg['sport_league'], leg['subject'], leg['bet_type'], leg['line'], leg['odds'], leg['bet_qualifier']))
         
         conn.commit()
-        print(f"    --> Successfully stored Bet ID {bet_id} with {len(legs_data)} leg(s).")
+        print(f"    --> Successfully stored Bet ID {bet_id} with {len(legs_data)} leg(s) as {bet_format}.")
         return bet_id
 
     except sqlite3.IntegrityError:
@@ -193,6 +202,71 @@ def update_leg_status(leg_id, status):
     conn.commit()
     conn.close()
     print(f"Updated leg {leg_id} to status {status}")
+    
+    # After updating a leg, check if we need to update the parent bet status
+    update_bet_status_from_legs(leg_id)
+
+def update_bet_status_from_legs(leg_id):
+    """
+    Updates the parent bet's status based on all its legs' statuses.
+    For parlays: WIN if all legs WIN, LOSS if any leg LOSS, PUSH if all legs PUSH.
+    For singles: No change to bet status (each leg is independent).
+    """
+    conn = connect_db()
+    cursor = conn.cursor()
+    
+    try:
+        # Get the bet_id and bet_format for this leg
+        cursor.execute('''
+            SELECT b.bet_id, b.bet_format, b.status as bet_status
+            FROM bets b
+            JOIN legs l ON b.bet_id = l.bet_id
+            WHERE l.leg_id = ?
+        ''', (leg_id,))
+        
+        bet_info = cursor.fetchone()
+        if not bet_info:
+            return
+            
+        bet_id, bet_format, current_bet_status = bet_info['bet_id'], bet_info['bet_format'], bet_info['bet_status']
+        
+        # Only update bet status for parlays
+        if bet_format != 'Parlay':
+            return
+            
+        # Get all legs for this bet
+        cursor.execute('''
+            SELECT status FROM legs WHERE bet_id = ?
+        ''', (bet_id,))
+        
+        leg_statuses = [row['status'] for row in cursor.fetchall()]
+        
+        # Check if all legs have been graded
+        if 'PENDING_RESULT' in leg_statuses:
+            return  # Not all legs are graded yet
+            
+        # Determine bet status based on leg statuses
+        if all(status == 'WIN' for status in leg_statuses):
+            new_bet_status = 'WIN'
+        elif any(status == 'LOSS' for status in leg_statuses):
+            new_bet_status = 'LOSS'
+        elif all(status == 'PUSH' for status in leg_statuses):
+            new_bet_status = 'PUSH'
+        else:
+            # Mixed results (some WIN, some PUSH) - this shouldn't happen in practice
+            new_bet_status = 'LOSS'
+            
+        # Update bet status if it changed
+        if new_bet_status != current_bet_status:
+            cursor.execute('UPDATE bets SET status = ? WHERE bet_id = ?', (new_bet_status, bet_id))
+            conn.commit()
+            print(f"Updated bet {bet_id} status from {current_bet_status} to {new_bet_status}")
+            
+    except Exception as e:
+        print(f"Error updating bet status: {e}")
+        conn.rollback()
+    finally:
+        conn.close()
 
 def get_all_cappers():
     """Retrieves all cappers from the database."""

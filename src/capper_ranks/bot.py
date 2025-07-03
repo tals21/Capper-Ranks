@@ -73,11 +73,12 @@ def main_loop():
 
             for tweet in reversed(response.data): # type: ignore
                 print(f"\n  - Processing Tweet ID: {tweet.id} from {tweet.created_at}")
-                legs = pick_detector.detect_pick(tweet.text)
+                detection_result = pick_detector.detect_pick(tweet.text)
                 
-                if legs:
-                    print(f"    ✅ PICK DETECTED: {legs}")
-                    models.store_bet_and_legs(capper_id, str(tweet.id), None, tweet.created_at, legs)
+                if detection_result:
+                    print(f"    ✅ PICK DETECTED: {detection_result['legs']}")
+                    print(f"    📊 Bet Type: {'Parlay' if detection_result['is_parlay'] else 'Single(s)'}")
+                    models.store_bet_and_legs(capper_id, str(tweet.id), None, tweet.created_at, detection_result)
                 else:
                     print(f"    -- No valid pick found in this tweet.")
 
@@ -92,5 +93,51 @@ def main_loop():
     process_pending_results()
     print("\n--- Bot has finished its run. ---")
 
+def test_live_tweet_processing():
+    """
+    Test function to process a sample tweet and demonstrate the new parlay detection.
+    This can be used to test the system with live tweets.
+    """
+    print("=== Testing Live Tweet Processing ===")
+    
+    # Sample tweets for testing
+    test_tweets = [
+        {
+            "text": "Shohei Ohtani Over 1.5 Total Bases\nAaron Judge Over 0.5 Home Runs",
+            "description": "Multiple picks without parlay keywords (should be singles)"
+        },
+        {
+            "text": "Parlay:\nShohei Ohtani Over 1.5 Total Bases\nAaron Judge Over 0.5 Home Runs",
+            "description": "Multiple picks with parlay keyword (should be parlay)"
+        },
+        {
+            "text": "NYY ML is a lock",
+            "description": "Single pick (should be single)"
+        },
+        {
+            "text": "Combination bet:\nJuan Soto Under 1.5 RBIs\nMookie Betts Over 2.5 H+R+RBI",
+            "description": "Multiple picks with combination keyword (should be parlay)"
+        }
+    ]
+    
+    for i, tweet_data in enumerate(test_tweets, 1):
+        print(f"\n--- Test {i}: {tweet_data['description']} ---")
+        print(f"Tweet: {tweet_data['text']}")
+        
+        detection_result = pick_detector.detect_pick(tweet_data['text'])
+        
+        if detection_result:
+            print(f"✅ Detected {len(detection_result['legs'])} leg(s)")
+            print(f"📊 Bet Type: {'Parlay' if detection_result['is_parlay'] else 'Single(s)'}")
+            for j, leg in enumerate(detection_result['legs'], 1):
+                print(f"   Leg {j}: {leg['subject']} {leg['bet_qualifier']}")
+        else:
+            print("❌ No picks detected")
+        
+        print("-" * 50)
+
 if __name__ == '__main__':
+    # Uncomment the line below to test live tweet processing
+    # test_live_tweet_processing()
+    
     main_loop()

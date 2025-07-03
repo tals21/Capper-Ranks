@@ -20,20 +20,39 @@ def _find_sport_context(tweet_text: str) -> Tuple[Optional[str], Optional[str]]:
 
 # List of valid MLB player prop stat types (expand as needed)
 MLB_STAT_TYPES = [
-    "Total Bases", "Hits", "Home Runs", "RBIs", "Runs", "Strikeouts", "Walks", "Stolen Bases", "Hits Allowed",
+    "H+R+RBI", "Total Bases", "Hits", "Home Runs", "RBIs", "Runs", "Strikeouts", "Walks", "Stolen Bases", "Hits Allowed",
     "Earned Runs", "Outs Recorded", "Runs Allowed", "Saves", "Wins", "Losses", "Innings Pitched", "Doubles", "Triples"
 ]
 
 # Sort by length descending for greedy matching
 MLB_STAT_TYPES = sorted(MLB_STAT_TYPES, key=lambda x: -len(x))
 
+# Keywords that indicate a parlay bet
+PARLAY_KEYWORDS = [
+    'parlay', 'parlays', 'parlayed', 'parlaying',
+    'all must hit', 'all must win', 'all legs',
+    'combined', 'combo', 'combination',
+    'multi-leg', 'multileg', 'multi leg',
+    'bundle', 'package', 'set'
+]
+
+def _is_parlay_tweet(tweet_text: str) -> bool:
+    """
+    Determines if a tweet contains parlay keywords indicating it's a true parlay bet.
+    Returns True if parlay keywords are found, False otherwise (defaults to singles).
+    """
+    tweet_lower = tweet_text.lower()
+    return any(keyword in tweet_lower for keyword in PARLAY_KEYWORDS)
+
 def _detect_player_prop(line: str) -> Optional[Dict]:
     """
     Improved: Finds the bet pattern, then matches the longest valid stat type after the number.
+    Now also strips team abbreviations in parentheses from player names.
+    Handles formats like "Player Name (Team) O/U <number> <stat_type>"
     """
-    # Regex: (Over|Under) <number> <stat type>
+    # Updated regex to handle "Player Name (Team) O/U <number> <stat_type>" format
     bet_match = re.search(
-        r"(over|under|o/u|o|u)\s*(\d+\.?\d*)\s+(.+)",
+        r"(over|under|o/u|o|u)\s*(\d+\.?\d*)\s+([A-Za-z\s'']+?)(?:\s|$)",
         line,
         re.IGNORECASE
     )
@@ -49,9 +68,11 @@ def _detect_player_prop(line: str) -> Optional[Dict]:
     # Try to find the player name (up to 4 words before the bet)
     for i in range(min(4, len(words)), 0, -1):
         name_candidate = " ".join(words[-i:])
-        if not name_candidate[0].isupper():
+        # Remove team abbreviation in parentheses, e.g., 'Hunter Brown (HOU)' -> 'Hunter Brown'
+        name_candidate_clean = re.sub(r"\s*\([A-Za-z0-9 .]+\)$", "", name_candidate).strip()
+        if not name_candidate_clean or not name_candidate_clean[0].isupper():
             continue
-        league = sports_api.get_player_league(name_candidate)
+        league = sports_api.get_player_league(name_candidate_clean)
         if league:
             qualifier_text, line_str, stat_type_candidate = bet_match.groups()
             qualifier = "Over" if qualifier_text.lower().startswith('o') else "Under"
@@ -66,7 +87,7 @@ def _detect_player_prop(line: str) -> Optional[Dict]:
                 stat_type = stat_type_candidate.split()[0]
             return {
                 'sport_league': league,
-                'subject': name_candidate,
+                'subject': name_candidate_clean,
                 'bet_type': 'Player Prop',
                 'line': float(line_str),
                 'odds': None,
@@ -103,8 +124,11 @@ def _detect_team_bet(line: str) -> Optional[Dict]:
     return None
 
 # --- Main Dispatcher Function ---
-def detect_pick(tweet_text: str) -> Optional[List[Dict]]:
-    """Main dispatcher. Splits tweets by lines and filters for supported leagues."""
+def detect_pick(tweet_text: str) -> Optional[Dict]:
+    """
+    Main dispatcher. Splits tweets by lines and filters for supported leagues.
+    Returns a dictionary with 'legs' and 'is_parlay' keys.
+    """
     print(f"----- Analyzing Tweet: \"{tweet_text[:100].replace(chr(10), ' ')}...\" -----")
     all_legs = []
     lines = tweet_text.split('\n')
@@ -129,4 +153,11 @@ def detect_pick(tweet_text: str) -> Optional[List[Dict]]:
         print("  DEBUG: No valid picks found in any line of the tweet.")
         return None
 
-    return all_legs
+    # Determine if this is a parlay based on keywords
+    is_parlay = _is_parlay_tweet(tweet_text)
+    print(f"  DEBUG: Tweet {'IS' if is_parlay else 'IS NOT'} a parlay (based on keywords)")
+    
+    return {
+        'legs': all_legs,
+        'is_parlay': is_parlay
+    }
