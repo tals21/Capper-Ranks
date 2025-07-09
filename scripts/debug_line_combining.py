@@ -94,7 +94,7 @@ Sie ff ee ,. * 2"""
             print(f"  ❌ Line doesn't pass conditions:")
             print(f"    - isupper(): {current_line.isupper()}")
             print(f"    - len <= 4: {len(current_line.split()) <= 4}")
-            print(f"    - no special chars: {not any(char in current_line for char in ['+', '-', '$', '%', '\\', '/'])}")
+            print(f"    - no special chars: {not any(char in current_line for char in ['+', '-', '$', '%', '\\\\', '/'])}")
             print(f"    - has next line: {i + 1 < len(lines)}")
         
         combined_lines.append(current_line)
