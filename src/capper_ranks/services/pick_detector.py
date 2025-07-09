@@ -33,7 +33,8 @@ PARLAY_KEYWORDS = [
     'all must hit', 'all must win', 'all legs',
     'combined', 'combo', 'combination',
     'multi-leg', 'multileg', 'multi leg',
-    'bundle', 'package', 'set'
+    'bundle', 'package', 'set',
+    'sgp', 'same game parlay', 'leg'  # Added for SGP and leg-based slips
 ]
 
 def _is_parlay_tweet(tweet_text: str) -> bool:
@@ -49,61 +50,119 @@ def _detect_player_prop(line: str) -> Optional[Dict]:
     Improved: Finds the bet pattern, then matches the longest valid stat type after the number.
     Now also strips team abbreviations in parentheses from player names.
     Handles formats like "Player Name (Team) O/U <number> <stat_type>"
+    Also handles alt prop formats like "Player Name 1+ Home Run(s)"
     """
-    # Updated regex to handle "Player Name (Team) O/U <number> <stat_type>" format
-    # Also handles special cases like "H+R+RBI"
+    # First, try to match the standard Over/Under format
     bet_match = re.search(
         r"(over|under|o/u|o|u)\s*(\d+\.?\d*)\s+([A-Za-z\s''+/]+?)(?:\s*$)",
         line,
         re.IGNORECASE
     )
-
-    if not bet_match:
-        return None
-
-    text_before_bet = line[:bet_match.start()].strip()
-    words = text_before_bet.split()
-    if not words:
-        return None
-
-    # Try to find the player name (up to 4 words before the bet)
-    for i in range(min(4, len(words)), 0, -1):
-        name_candidate = " ".join(words[-i:])
-        # Remove team abbreviation in parentheses, e.g., 'Hunter Brown (HOU)' -> 'Hunter Brown'
-        name_candidate_clean = re.sub(r"\s*\([A-Za-z0-9 .]+\)$", "", name_candidate).strip()
-        if not name_candidate_clean or not name_candidate_clean[0].isupper():
-            continue
-        league = sports_api.get_player_league(name_candidate_clean)
+    if bet_match:
+        text_before_bet = line[:bet_match.start()].strip()
+        words = text_before_bet.split()
+        if not words:
+            return None
+        # Try to find the player name (up to 4 words before the bet)
+        for i in range(min(4, len(words)), 0, -1):
+            name_candidate = " ".join(words[-i:])
+            # Remove team abbreviation in parentheses, e.g., 'Hunter Brown (HOU)' -> 'Hunter Brown'
+            name_candidate_clean = re.sub(r"\s*\([A-Za-z0-9 .]+\)$", "", name_candidate).strip()
+            if not name_candidate_clean or not name_candidate_clean[0].isupper():
+                continue
+            league = sports_api.get_player_league(name_candidate_clean)
+            if league:
+                qualifier_text, line_str, stat_type_candidate = bet_match.groups()
+                qualifier = "Over" if qualifier_text.lower().startswith('o') else "Under"
+                stat_type_candidate = stat_type_candidate.strip()
+                # Special handling for H+R+RBI
+                if stat_type_candidate.upper() == "H+R+RBI":
+                    stat_type = "H+R+RBI"
+                else:
+                    # Greedily match the longest valid stat type
+                    stat_type = None
+                    for stype in MLB_STAT_TYPES:
+                        if stype == "H+R+RBI":
+                            continue
+                        if stat_type_candidate.lower().startswith(stype.lower()):
+                            stat_type = stype
+                            break
+                    if not stat_type:
+                        stat_type = stat_type_candidate.split()[0]
+                return {
+                    'sport_league': league,
+                    'subject': name_candidate_clean,
+                    'bet_type': 'Player Prop',
+                    'line': float(line_str),
+                    'odds': None,
+                    'bet_qualifier': f"{qualifier} {stat_type}"
+                }
+    # Now, try to match the alt prop format: "Player Name 1+ Home Run(s)"
+    alt_match = re.search(
+        r"([A-Za-z .'-]+)\s+1\+\s+(Home Run|Home Runs|HR|Hits|Total Bases|RBI|RBIs|Runs|Stolen Bases)",
+        line,
+        re.IGNORECASE
+    )
+    if alt_match:
+        player_name = alt_match.group(1).strip()
+        stat_type = alt_match.group(2).strip()
+        league = sports_api.get_player_league(player_name)
         if league:
-            qualifier_text, line_str, stat_type_candidate = bet_match.groups()
-            qualifier = "Over" if qualifier_text.lower().startswith('o') else "Under"
-            
-            # Clean up the stat type candidate
-            stat_type_candidate = stat_type_candidate.strip()
-            
-            # Special handling for H+R+RBI
-            if stat_type_candidate.upper() == "H+R+RBI":
-                stat_type = "H+R+RBI"
-            else:
-                # Greedily match the longest valid stat type
-                stat_type = None
-                for stype in MLB_STAT_TYPES:
-                    if stype == "H+R+RBI":  # Skip this in the loop since we handled it above
-                        continue
-                    if stat_type_candidate.lower().startswith(stype.lower()):
-                        stat_type = stype
-                        break
-                if not stat_type:
-                    # fallback: use first word after number
-                    stat_type = stat_type_candidate.split()[0]
+            # 1+ means Over 0.5 for most stat types
             return {
                 'sport_league': league,
-                'subject': name_candidate_clean,
+                'subject': player_name,
                 'bet_type': 'Player Prop',
-                'line': float(line_str),
+                'line': 0.5,
                 'odds': None,
-                'bet_qualifier': f"{qualifier} {stat_type}"
+                'bet_qualifier': f"Over {stat_type}"
             }
+    
+    # Handle ParlayScience format: "Player Name 2+ TOTAL BASES"
+    bases_match = re.search(
+        r"([A-Za-z .'-]+)\s+(\d+)\+\s*(TOTAL\s*BASES?|Total\s*Bases?)",
+        line,
+        re.IGNORECASE
+    )
+    if bases_match:
+        player_name = bases_match.group(1).strip()
+        line_value = int(bases_match.group(2))
+        stat_type = bases_match.group(3).strip()
+        league = sports_api.get_player_league(player_name)
+        if league:
+            return {
+                'sport_league': league,
+                'subject': player_name,
+                'bet_type': 'Player Prop',
+                'line': float(line_value - 0.5),  # 2+ means Over 1.5
+                'odds': None,
+                'bet_qualifier': f"Over {stat_type}"
+            }
+    
+    # Handle ParlayScience format: "Player Name TO HIT A HOME RUN"
+    home_run_match = re.search(
+        r"([A-Za-z .'-]+)\s+TO\s+HIT\s+A?\s*(HOME RUN|Home Run)",
+        line,
+        re.IGNORECASE
+    )
+    if home_run_match:
+        player_name = home_run_match.group(1).strip()
+        stat_type = home_run_match.group(2).strip()
+        
+        # Clean up player name - remove any single letters or abbreviations at the end
+        player_name = re.sub(r'\s+[A-Z]{1,2}\s*$', '', player_name).strip()
+        
+        league = sports_api.get_player_league(player_name)
+        if league:
+            return {
+                'sport_league': league,
+                'subject': player_name,
+                'bet_type': 'Player Prop',
+                'line': 0.5,  # "TO HIT A HOME RUN" means Over 0.5 Home Runs
+                'odds': None,
+                'bet_qualifier': f"Over {stat_type}"
+            }
+    
     return None
 
 def _detect_team_bet(line: str) -> Optional[Dict]:

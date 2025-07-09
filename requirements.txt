@@ -3,3 +3,6 @@ MLB-StatsAPI
 tweepy
 pytest
 pytest-mock
+Pillow
+pytesseract
+requests

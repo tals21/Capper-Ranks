@@ -19,6 +19,7 @@ The bot's foundational data pipeline is complete and tested for single MLB bets.
   - Run Lines (Spreads)
   - Totals (Over/Under)
   - Player Props (Total Bases, Hits, Home Runs, RBIs, etc.)
+- **Image-Based Pick Detection**: Uses OCR (Tesseract) to extract picks from bet slip images in tweets
 - **Intelligent Entity Recognition**: Uses data maps and real-time API validation to identify MLB teams and players
 - **Data Storage & Deduplication**: Stores picks in relational format, preventing duplicates
 - **Automated Result Grading**: Fetches game data from MLB-StatsAPI and grades all supported bet types
@@ -38,7 +39,8 @@ src/capper_ranks/
 ├── services/
 │   ├── pick_detector.py    # "Brain" of the bot - pick detection logic
 │   ├── sports_api.py       # External sports data API communication
-│   └── x_client.py         # X (Twitter) API communication
+│   ├── x_client.py         # X (Twitter) API communication
+│   └── image_processor.py  # OCR and image processing for bet slip images
 ├── database/
 │   └── models.py           # SQLite database interactions
 ├── core/
@@ -50,11 +52,25 @@ src/capper_ranks/
 
 ## 🛠️ Installation & Setup
 
+### Quick Setup (Automated)
+```bash
+# Clone and install everything automatically
+git clone <repository-url>
+cd Capper-Ranks
+python scripts/install_image_processing.py
+```
+
+### Manual Setup
 1. Clone the repository
 2. Install dependencies: `pip install -r requirements.txt`
-3. Set up environment variables in `.env`
-4. Initialize the database: `python -m capper_ranks.database.models`
-5. Run the bot: `python -m capper_ranks.bot`
+3. Install Tesseract OCR:
+   - **macOS**: `brew install tesseract`
+   - **Ubuntu**: `sudo apt-get install tesseract-ocr`
+   - **Windows**: Download from [Tesseract GitHub](https://github.com/UB-Mannheim/tesseract/wiki)
+4. Set up environment variables in `.env`
+5. Initialize the database: `python -m capper_ranks.database.models`
+6. Test image processing: `python scripts/test_image_processing.py`
+7. Run the bot: `python -m capper_ranks.bot`
 
 ## 🧪 Testing
 
@@ -89,11 +105,11 @@ The project includes comprehensive tests for pick detection, API integration, an
 
 ### Medium-Term Goals (Next 1-3 Months)
 
-#### 4. **Image-Based Pick Detection (OCR)**
-- [ ] Integrate OCR library (Tesseract) for processing bet slip images
-- [ ] Build pipeline to extract text from images and run existing detection
-- [ ] Add confidence scoring and failure logging
-- [ ] Test with various image formats and qualities
+#### 4. **Image-Based Pick Detection (OCR)** ✅ COMPLETED
+- [x] Integrate OCR library (Tesseract) for processing bet slip images
+- [x] Build pipeline to extract text from images and run existing detection
+- [x] Add confidence scoring and failure logging
+- [x] Test with various image formats and qualities
 
 #### 5. **Multi-Sport Expansion**
 - [ ] Add NFL team and player prop support
