@@ -56,7 +56,7 @@ class TestImageProcessor:
                 assert result is not None
                 assert "Shohei Ohtani" in result
                 
-            # Note: The file is automatically cleaned up by the extract_text_from_image method
+            # The file is automatically cleaned up by the extract_text_from_image method
             # No need to manually delete it here
     
     def test_extract_text_from_image_failure(self):
