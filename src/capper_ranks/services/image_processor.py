@@ -97,7 +97,9 @@ class ImageProcessor:
         # Remove common OCR artifacts
         cleaned = '\n'.join(lines)
         cleaned = cleaned.replace('|', 'I')  # Common OCR mistake
-        cleaned = cleaned.replace('0', 'O')  # Common OCR mistake in certain contexts
+        cleaned = cleaned.replace('0ver', 'Over')  # Common OCR mistake: 0ver -> Over
+        # Don't replace all '0' with 'O' as it breaks numbers like '0.5'
+        # Only replace specific OCR mistakes
         cleaned = cleaned.replace('5I', '5')
         cleaned = cleaned.replace('9I', '5')
         cleaned = cleaned.replace('1.9', '1.5')

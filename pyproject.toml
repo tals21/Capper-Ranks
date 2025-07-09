@@ -18,3 +18,14 @@ requires-python = ">=3.9"
 # This section is the key to solving your 'src' layout import error.
 [tool.setuptools.packages.find]
 where = ["src"]  # Tells setuptools to look for packages inside the 'src' directory
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = "-v --tb=short"
+filterwarnings = [
+    "ignore::DeprecationWarning",
+    "ignore::PendingDeprecationWarning",
+]

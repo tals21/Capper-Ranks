@@ -56,8 +56,8 @@ class TestImageProcessor:
                 assert result is not None
                 assert "Shohei Ohtani" in result
                 
-            # Clean up
-            os.unlink(temp_file.name)
+            # Note: The file is automatically cleaned up by the extract_text_from_image method
+            # No need to manually delete it here
     
     def test_extract_text_from_image_failure(self):
         """Test text extraction failure."""
@@ -79,7 +79,7 @@ class TestImageProcessor:
         
         assert "Shohei Ohtani I Over 1.5 Total Bases" in cleaned  # | -> I
         assert "Aaron Judge Over 0.5 Home Runs" in cleaned  # 0ver -> Over
-        assert cleaned.count('\n') == 2  # Should have 2 lines
+        assert cleaned.count('\n') == 1  # Should have 1 line break between 2 lines
     
     def test_clean_ocr_text_empty(self):
         """Test cleaning empty OCR text."""
