@@ -1,3 +1,7 @@
 .env
 venv/
 *.db
+
+# Test scripts that require environment variables
+scripts/test_dangambleai_tweet.py
+scripts/test_parlayscience_tweet.py
