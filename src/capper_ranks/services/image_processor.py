@@ -4,7 +4,6 @@ import tempfile
 from typing import List, Optional, Tuple
 from PIL import Image
 import pytesseract
-from capper_ranks.core import config
 
 class ImageProcessor:
     """Service for processing images in tweets and extracting text using OCR."""
